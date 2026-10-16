@@ -1,12 +1,12 @@
 /* ============================================================
    🚆 RailTrack — Automatic 30-Hour Departure Reminders
+   EmailJS version (works on Render free tier — no SMTP)
    ============================================================ */
 require('dotenv').config();
-const express    = require('express');
-const nodemailer = require('nodemailer');
-const cron       = require('node-cron');
-const cors       = require('cors');
-const fs         = require('fs');
+const express  = require('express');
+const cron     = require('node-cron');
+const cors     = require('cors');
+const fs       = require('fs');
 
 const app = express();
 app.use(cors());
@@ -14,9 +14,11 @@ app.use(express.json());
 
 /* ---------------- ENV CHECK ---------------- */
 console.log('🔑 ENV CHECK:');
-console.log('   EMAIL_USER        =', process.env.EMAIL_USER);
-console.log('   EMAIL_PASS length =', (process.env.EMAIL_PASS || '').length);
-console.log('   TO_EMAIL          =', process.env.TO_EMAIL);
+console.log('   EMAILJS_SERVICE_ID   =', process.env.EMAILJS_SERVICE_ID);
+console.log('   EMAILJS_TEMPLATE_ID  =', process.env.EMAILJS_TEMPLATE_ID);
+console.log('   EMAILJS_PUBLIC_KEY   =', process.env.EMAILJS_PUBLIC_KEY);
+console.log('   EMAILJS_PRIVATE_KEY  =', process.env.EMAILJS_PRIVATE_KEY ? '(set, ' + process.env.EMAILJS_PRIVATE_KEY.length + ' chars)' : '(missing)');
+console.log('   TO_EMAIL             =', process.env.TO_EMAIL);
 console.log('─────────────────────────────');
 
 /* ---------------- CONFIG ---------------- */
@@ -73,18 +75,38 @@ function parseDeparture(trip) {
   return new Date(iso);
 }
 
-/* ---------------- Mailer ---------------- */
-const transporter = nodemailer.createTransport({
-  service: 'gmail',
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS
-  }
-});
-
+/* ============================================================
+   📧 EmailJS sender — uses HTTPS API (no SMTP ports needed)
+   ============================================================ */
 async function sendReminderEmail(trip, hoursLeft) {
-  const subject = `⏰ Reminder: ${trip.train} (#${trip.number}) departs in ${hoursLeft.toFixed(1)}h`;
-  const body =
+  const payload = {
+    service_id:  process.env.EMAILJS_SERVICE_ID,
+    template_id: process.env.EMAILJS_TEMPLATE_ID,
+    user_id:     process.env.EMAILJS_PUBLIC_KEY,
+    accessToken: process.env.EMAILJS_PRIVATE_KEY,
+    template_params: {
+      // Email recipients
+      to_email:   process.env.TO_EMAIL,
+      email:      process.env.TO_EMAIL,
+
+      // Trip details
+      train:      trip.train,
+      number:     trip.number,
+      pnr:        trip.pnr,
+      from:       trip.from,
+      to:         trip.to,
+      dep:        trip.dep,
+      date:       trip.date,
+      boarding:   trip.boarding,
+      status:     trip.status,
+
+      // Reminder info
+      hours_left: hoursLeft.toFixed(1),
+      subject:    `⏰ Reminder: ${trip.train} (#${trip.number}) departs in ${hoursLeft.toFixed(1)}h`,
+      sent_at:    new Date().toISOString(),
+
+      // Full text body (some templates use {{{message}}})
+      message:
 `Hi,
 
 ⏰ UPCOMING DEPARTURE REMINDER — ${hoursLeft.toFixed(1)} HOURS TO GO
@@ -99,14 +121,20 @@ Status    : ${trip.status}
 Your train departs in approximately ${hoursLeft.toFixed(1)} hours.
 Please plan your journey accordingly.
 
-— RailTrack Reminder Bot`;
+— RailTrack Reminder Bot`
+    }
+  };
 
-  await transporter.sendMail({
-    from: `"RailTrack Reminder" <${process.env.EMAIL_USER}>`,
-    to: process.env.TO_EMAIL,
-    subject,
-    text: body
+  const response = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
   });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`EmailJS ${response.status}: ${errText}`);
+  }
 
   console.log(`📨 Reminder sent for PNR ${trip.pnr} (${hoursLeft.toFixed(1)}h left)`);
 }
@@ -187,6 +215,10 @@ cron.schedule('*/30 * * * *', () => {
 });
 
 /* ---------------- API ---------------- */
+app.get('/', (req, res) => {
+  res.send('🚆 RailTrack Reminder Server is running. Visit /api/status to see current state.');
+});
+
 app.get('/api/check', async (req, res) => {
   await checkReminders();
   res.json({ ok: true, sent: getSentLog() });
@@ -200,22 +232,25 @@ app.get('/api/status', (req, res) => {
     booked:        trips.filter(t => t.status === 'BOOKED').length,
     remindersSent: Object.keys(log).length,
     reminderHours: REMINDER_HOURS,
+    now:           new Date().toISOString(),
     log
   });
 });
 
 /* ---------------- Startup ---------------- */
-app.listen(process.env.PORT || 3000, async () => {
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, async () => {
   console.log('════════════════════════════════════════');
   console.log('🚆 RailTrack Reminder Server');
   console.log('════════════════════════════════════════');
-  console.log(`  Port          : ${process.env.PORT || 3000}`);
+  console.log(`  Port          : ${PORT}`);
   console.log(`  Email to      : ${process.env.TO_EMAIL}`);
   console.log(`  Reminder at   : ${REMINDER_HOURS} hours before departure`);
   console.log(`  Total trips   : ${trips.length}`);
   console.log(`  Cron          : every 30 minutes`);
   console.log(`  Log file      : ${LOG_FILE}`);
   console.log(`  Test mode     : ${TEST_MODE ? 'ON ⚠️' : 'off'}`);
+  console.log(`  Sender        : EmailJS (HTTPS, no SMTP)`);
   console.log('════════════════════════════════════════\n');
 
   await sendStartupTest();
