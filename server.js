@@ -30,7 +30,7 @@ const TEST_MODE      = false;                    // 🧪 true = send one test em
 
 /* ---------------- Original trips ---------------- */
 const trips = [
-  { train:"DUMMY TEST TRAIN", number:"00000", pnr:"DUMMY001", from:"TEST STATION (TST)", to:"DESTINATION (DST)", dep:"23:20", date:"Sat, 17 Oct", status:"BOOKED", boarding:"TEST STATION (TST)" },
+  { train:"DUMMY TEST TRAIN", number:"00000", pnr:"DUMMY001", from:"TEST STATION (TST)", to:"DESTINATION (DST)", dep:"23:40", date:"Sat, 17 Oct", status:"BOOKED", boarding:"TEST STATION (TST)" },
   { train:"GOUTAMI SF EXP",  number:"12738", pnr:"4950235078", from:"Lingampalli (LPI)",     to:"Kakinada Town J (CCT)", dep:"20:30", date:"Fri, 16 Oct", status:"CANCELLED", boarding:"Lingampalli (LPI)" },
   { train:"COA SNSI EXP",    number:"17206", pnr:"4866024742", from:"Kakinada Town J (CCT)", to:"Vijayawada Jn. (BZA)",   dep:"05:15", date:"Mon, 19 Oct", status:"BOOKED",    boarding:"Kakinada Town J (CCT)" },
   { train:"COA SNSI EXP",    number:"17206", pnr:"4953463920", from:"Kakinada Town J (CCT)", to:"Vijayawada Jn. (BZA)",   dep:"05:15", date:"Wed, 21 Oct", status:"BOOKED",    boarding:"Kakinada Town J (CCT)" },
