@@ -1,12 +1,13 @@
 /* ============================================================
    🚆 RailTrack — Automatic 30-Hour Departure Reminders
-   EmailJS version (works on Render free tier — no SMTP)
+   EmailJS version | Multi-recipient support
+   Works on Render free tier — no SMTP ports needed
    ============================================================ */
 require('dotenv').config();
-const express  = require('express');
-const cron     = require('node-cron');
-const cors     = require('cors');
-const fs       = require('fs');
+const express = require('express');
+const cron    = require('node-cron');
+const cors    = require('cors');
+const fs      = require('fs');
 
 const app = express();
 app.use(cors());
@@ -17,7 +18,7 @@ console.log('🔑 ENV CHECK:');
 console.log('   EMAILJS_SERVICE_ID   =', process.env.EMAILJS_SERVICE_ID);
 console.log('   EMAILJS_TEMPLATE_ID  =', process.env.EMAILJS_TEMPLATE_ID);
 console.log('   EMAILJS_PUBLIC_KEY   =', process.env.EMAILJS_PUBLIC_KEY);
-console.log('   EMAILJS_PRIVATE_KEY  =', process.env.EMAILJS_PRIVATE_KEY ? '(set, ' + process.env.EMAILJS_PRIVATE_KEY.length + ' chars)' : '(missing)');
+console.log('   EMAILJS_PRIVATE_KEY  =', process.env.EMAILJS_PRIVATE_KEY ? `(set, ${process.env.EMAILJS_PRIVATE_KEY.length} chars)` : '(missing)');
 console.log('   TO_EMAIL             =', process.env.TO_EMAIL);
 console.log('─────────────────────────────');
 
@@ -69,25 +70,37 @@ function parseDeparture(trip) {
   const month = monthMap[monthStr];
   if (month === undefined) return null;
   const [hour, minute] = trip.dep.split(':').map(Number);
-  // Build as IST (+05:30)
+  // Build as IST (+05:30) — India Standard Time
   const iso = `${year}-${String(month+1).padStart(2,'0')}-${String(day).padStart(2,'0')}T` +
               `${String(hour).padStart(2,'0')}:${String(minute).padStart(2,'0')}:00+05:30`;
   return new Date(iso);
 }
 
 /* ============================================================
-   📧 EmailJS sender — uses HTTPS API (no SMTP ports needed)
+   📧 EmailJS sender — supports MULTIPLE recipients
    ============================================================ */
 async function sendReminderEmail(trip, hoursLeft) {
+  // Parse TO_EMAIL — supports comma-separated list
+  const recipients = (process.env.TO_EMAIL || '')
+    .split(',')
+    .map(e => e.trim())
+    .filter(e => e.length > 0);
+
+  if (recipients.length === 0) {
+    throw new Error('No TO_EMAIL recipients configured');
+  }
+
+  console.log(`📤 Sending to ${recipients.length} recipient(s): ${recipients.join(', ')}`);
+
   const payload = {
     service_id:  process.env.EMAILJS_SERVICE_ID,
     template_id: process.env.EMAILJS_TEMPLATE_ID,
     user_id:     process.env.EMAILJS_PUBLIC_KEY,
     accessToken: process.env.EMAILJS_PRIVATE_KEY,
     template_params: {
-      // Email recipients
-      to_email:   process.env.TO_EMAIL,
-      email:      process.env.TO_EMAIL,
+      // Recipients — EmailJS accepts comma-separated string in "To Email"
+      to_email:   recipients.join(','),
+      email:      recipients.join(','),
 
       // Trip details
       train:      trip.train,
@@ -105,7 +118,7 @@ async function sendReminderEmail(trip, hoursLeft) {
       subject:    `⏰ Reminder: ${trip.train} (#${trip.number}) departs in ${hoursLeft.toFixed(1)}h`,
       sent_at:    new Date().toISOString(),
 
-      // Full text body (some templates use {{{message}}})
+      // Full text body (for templates that use {{{message}}})
       message:
 `Hi,
 
@@ -136,7 +149,7 @@ Please plan your journey accordingly.
     throw new Error(`EmailJS ${response.status}: ${errText}`);
   }
 
-  console.log(`📨 Reminder sent for PNR ${trip.pnr} (${hoursLeft.toFixed(1)}h left)`);
+  console.log(`📨 Reminder sent for PNR ${trip.pnr} (${hoursLeft.toFixed(1)}h left) → ${recipients.length} recipient(s)`);
 }
 
 /* ---------------- Core check ---------------- */
@@ -226,12 +239,14 @@ app.get('/api/check', async (req, res) => {
 
 app.get('/api/status', (req, res) => {
   const log = getSentLog();
+  const recipients = (process.env.TO_EMAIL || '').split(',').map(e => e.trim()).filter(Boolean);
   res.json({
     totalTrips:    trips.length,
     cancelled:     trips.filter(t => t.status === 'CANCELLED').length,
     booked:        trips.filter(t => t.status === 'BOOKED').length,
     remindersSent: Object.keys(log).length,
     reminderHours: REMINDER_HOURS,
+    recipients:    recipients,
     now:           new Date().toISOString(),
     log
   });
@@ -244,7 +259,7 @@ app.listen(PORT, async () => {
   console.log('🚆 RailTrack Reminder Server');
   console.log('════════════════════════════════════════');
   console.log(`  Port          : ${PORT}`);
-  console.log(`  Email to      : ${process.env.TO_EMAIL}`);
+  console.log(`  Recipients    : ${process.env.TO_EMAIL}`);
   console.log(`  Reminder at   : ${REMINDER_HOURS} hours before departure`);
   console.log(`  Total trips   : ${trips.length}`);
   console.log(`  Cron          : every 30 minutes`);
